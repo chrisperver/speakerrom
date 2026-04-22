@@ -1,4 +1,5 @@
-THE SPEAKER
+**THE SPEAKER**
+
 Published by Superior Software as SPEECH 1986
 Republished by Xavier Grossetete in CPC Infos 1991
 Retyped by NoRecess 2011
