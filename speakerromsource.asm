@@ -20,7 +20,7 @@ org #C000
 nolist
 
 defb 1     ; EXPANSION TYPE
-defb 1,0,0 ; VERSION
+defb 1,0,1 ; VERSION
 
 ; RSX JUMP TABLE
 defw name_table
@@ -32,9 +32,10 @@ jp rawcommand       ; SAY USING PHONEMES
 jp setcentrechannel
 jp setleftchannel
 jp setrightchannel
+jp setcentrechannel
 
 ; ROM ID
-msg: defb " SPEAKER ROM 1.0",10,13,0
+msg: defb " SPEAKER ROM 1.1",10,13,0
 
 ; INITIALIZE ROM
 initialize:
@@ -75,22 +76,23 @@ printline:
 name_table:
   defb 'CPS RO','M'+#80    ; PREFIX FOR BAD NAME
   defb 'SPEE','D'+#80
-  defb 'SPEA','K'+#80
+  defb 'HEL','P'+#80
   defb 'SA','Y'+#80
-  defb 'RA','W'+#80
+  defb 'SPEA','K'+#80
   defb 'CENTR','E'+#80
   defb 'LEF','T'+#80
   defb 'RIGH','T'+#80
+  defb 'CENTE','R'+#80
   defb #00
 
 usageinfo0: defb "SPEAKER Speech Synthesizer",0
 usageinfo1: defb " COMMANDS:-",0
-usageinfo2: defb "  |SAY,a$  - Say a string",0
-usageinfo3: defb "  |RAW,a$  - Say using phonemes",0
-usageinfo4: defb "  |SPEED,a - Set speed 1-20",0
-usageinfo5: defb "  |CENTRE  - Set centre channel",0
-usageinfo6: defb "  |LEFT    - Set left channel",0
-usageinfo7: defb "  |RIGHT   - Set right channel",0
+usageinfo2: defb "  |SAY,a$   - Say a string",0
+usageinfo3: defb "  |SPEAK,a$ - Say using phonemes",0
+usageinfo4: defb "  |SPEED,a  - Set speed 1-20",0
+usageinfo5: defb "  |CENTRE   - Set centre channel",0
+usageinfo6: defb "  |LEFT     - Set left channel",0
+usageinfo7: defb "  |RIGHT    - Set right channel",0
 
 ;; A = parameter count, IX = parameter address
 showusage:
@@ -120,8 +122,7 @@ showusage:
   call newline
   ld hl,usageinfo7	
   call printline	
-  call newline
-ret
+  jp newline
 
 newline:			;This is a newline command - different systems may need a different command (EG TI-83)
   ld a,13			;CHR(13) Carridge return
@@ -143,7 +144,11 @@ initializevariables:
   ld (iy+tonedelay),#12 
   ld (iy+speed),#12 ;(pitch)
   ld (iy+4),4 ;(l8836),a
-  ld (iy+5),#12 ;(l8839)
+
+  ld (iy+5),#65;a(l8839),a
+  ld (iy+6),#25;a;(l883a),a
+  ld (iy+7),#63;a;(l883b),a
+  
   ld (iy+8),#53 ;(l8842)
   ld (iy+outchannel),9 
 ret
@@ -164,7 +169,6 @@ ret
 
 start:
   call initializevariables ; SOUND WON'T PLAY UNLESS WE SET THESE
-  call l8a32
   di
   ;ld hl,phonemestringbuffer    ; PHONEME LIST TO SPEAK
   ; GET PHONEME STRING BUFFER POSITION
@@ -460,14 +464,8 @@ l8a17:
   rl (hl)
   inc hl
   rl (hl)
-  ld a,(iy+5);(l8839)
+  ld a,(hl);(l8839)
   and #0f
-ret
-
-l8a32:
-  ld (iy+5),#65;a(l8839),a
-  ld (iy+6),#25;a;(l883a),a
-  ld (iy+7),#63;a;(l883b),a
 ret
 
 ; PICK PHONEME?
@@ -990,6 +988,7 @@ sound_t_r:
 ret
 
 sound_z:
+
   inc hl
   ld a,(hl)
   cp #48 ; H
@@ -1221,7 +1220,7 @@ l8ee4:
   sbc hl,de
   ld a,h
   or l
-  jr z,l8f03
+  jr z,checkendofsentencetoneadjust
 ;  ld hl,(l8840)
   ld l,(iy+16)
   ld h,(iy+17)
@@ -1229,49 +1228,49 @@ l8ee4:
   sbc hl,de
   ld a,h
   or l
-  jr z,l8f22
+  jr z,checkendofsentencetoneadjust2
   l8eff:
   pop de
   pop hl
   pop af
 ret
 
-l8f03:
+checkendofsentencetoneadjust:
   ld a,(iy+8);(l8842)
   cp #3f ; ?
-  jr z,l8f10
+  jr z,raisetoneforquestion
   cp #2e ; .
-  jr z,l8f19
+  jr z,droptoneforfullstop
 jr l8eff
 
-l8f10:
+raisetoneforquestion:
   ld a,(iy+tonedelay)
   dec a
   ld (iy+tonedelay),a
 jr l8eff
 
-l8f19:
+droptoneforfullstop:
   ld a,(iy+tonedelay)
   inc a
   ld (iy+tonedelay),a
 jr l8eff
 
-l8f22:
+checkendofsentencetoneadjust2:
   ld a,(iy+8);(l8842)
   cp #3f ; ?
-  jr z,l8f2f
+  jr z,raisetoneforquestion2
   cp #2e ; .
-  jr z,l8f39
+  jr z,droptoneforfullstop2
 jr l8eff
 
-l8f2f:
+raisetoneforquestion2:
   ld a,(iy+tonedelay)
   dec a
   dec a
   ld (iy+tonedelay),a
 jr l8eff
 
-l8f39:
+droptoneforfullstop2:
   ld a,(iy+tonedelay)
   inc a
   inc a
