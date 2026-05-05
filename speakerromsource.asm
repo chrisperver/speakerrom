@@ -6,38 +6,78 @@
 
 ; FUNCTION CALLS
 txt_output equ &bb5a
+kl_curr_selection equ &b912
 
 ; IY OFFSETS
 phonemeptr1         equ 0
 phonemeptr2         equ 1
 tonedelay           equ 2
 speed               equ 3
+option4             equ 4
+option5             equ 5
+option6             equ 6
+option7             equ 7
+option8             equ 8
 outchannel          equ 9
-phonemestringbuffer equ 25
-textbuffer          equ 125
+option10            equ 10
+option11            equ 11
+option12            equ 12
+option13            equ 13
+option14            equ 14
+option15            equ 15
+option16            equ 16
+option17            equ 17
+option18            equ 18
+option19            equ 19
+option20            equ 20
+option21            equ 21
+option22            equ 22
+option23            equ 23
+initializevariable  equ 24
+
+; BACKUP OF ORIGINAL BB5A JUMP BLOCK ADDRESS
+orig_txt_output_1   equ 25
+orig_txt_output_2   equ 26
+orig_txt_output_3   equ 27
+orig_txt_output_4   equ 28
+sponenabled         equ 29
+; FAR CALL ADDRESS BLOCK DATA
+far_call_block_1    equ 30 ; ROUTINE ADDRESS IN ROM TO CALL
+far_call_block_2    equ 31 ; ROUTINE ADDRESS IN ROM TO CALL
+rombanknumber       equ 32
+; COUNTER VARIABLE FOR COPYING OUTPUT CHARS
+txt_counter         equ 33
+phonemestringbuffer equ 34
+
+textbuffer          equ phonemestringbuffer+100
 
 org #C000
 nolist
 
 defb 1     ; EXPANSION TYPE
-defb 1,0,1 ; VERSION
+defb 1,2,0 ; VERSION
 
 ; RSX JUMP TABLE
 defw name_table
 jp initialize
-jp setspeed         ; SPEED
-jp showusage        ; SHOW USAGE
-jp saycommand       ; SAY
-jp rawcommand       ; SAY USING PHONEMES
+jp setspeed             ; SPEED
+jp showusage            ; SHOW USAGE
+jp saycommand           ; SAY
+jp rawcommand           ; SAY USING PHONEMES
 jp setcentrechannel
 jp setleftchannel
 jp setrightchannel
 jp setcentrechannel
+jp enablespeechoutput   ; PATCH BB5A TO RUN OUR SPEECH FUNCTION
+jp disablespeechoutput  ; DISABLE PATCH
 
 ; ROM ID
-msg: defb " SPEAKER ROM 1.1",10,13,0
+msg: defb " SPEAKER ROM 1.2",10,13,0
 
 ; INITIALIZE ROM
+; INPUTS
+; HL = HIMEM
+; C  = ROM BANK NUMBER
 initialize:
   push hl
   push de
@@ -53,9 +93,9 @@ initialize:
   ; HL = HIMEM
   ; DECREMENT HL UNTIL WE GET ENOUGH SPACE FOR VARIABLES
 
-  ; LIST OF MEMORY USED BY ROM - GRAB 32 BYTES FROM HIMEM
+  ; LIST OF MEMORY USED BY ROM - GRAB BYTES FROM HIMEM
   ; BASIC PASSES IY TO FUNCTIONS AS START LOCATION OF RESERVED MEMORY
-  ld bc,230
+  ld bc,235
   sbc hl,bc
   
   scf
@@ -76,13 +116,15 @@ printline:
 name_table:
   defb 'CPS RO','M'+#80    ; PREFIX FOR BAD NAME
   defb 'SPEE','D'+#80
-  defb 'HEL','P'+#80
+  defb 'SPHEL','P'+#80
   defb 'SA','Y'+#80
   defb 'SPEA','K'+#80
   defb 'CENTR','E'+#80
   defb 'LEF','T'+#80
   defb 'RIGH','T'+#80
   defb 'CENTE','R'+#80
+  defb 'SPO','N'+#80
+  defb 'SPO','F'+#80
   defb #00
 
 usageinfo0: defb "SPEAKER Speech Synthesizer",0
@@ -93,6 +135,8 @@ usageinfo4: defb "  |SPEED,a  - Set speed 1-20",0
 usageinfo5: defb "  |CENTRE   - Set centre channel",0
 usageinfo6: defb "  |LEFT     - Set left channel",0
 usageinfo7: defb "  |RIGHT    - Set right channel",0
+usageinfo8: defb "  |SPON     - Enable speech output",0
+usageinfo9: defb "  |SPOF     - Disable speech output",0
 
 ;; A = parameter count, IX = parameter address
 showusage:
@@ -122,6 +166,12 @@ showusage:
   call newline
   ld hl,usageinfo7	
   call printline	
+  call newline
+  ld hl,usageinfo8	
+  call printline	
+  call newline
+  ld hl,usageinfo9	
+  call printline	
   jp newline
 
 newline:			;This is a newline command - different systems may need a different command (EG TI-83)
@@ -130,26 +180,134 @@ newline:			;This is a newline command - different systems may need a different c
   ld a,10			;CHR(10) Newline
   jp txt_output
 
+; ============================================
+; JUMP BLOCK PATCH FOR |SPON
+; --------------------------------------------
+
+enablespeechoutput:   ; PATCH BB5A TO RUN OUR SPEECH FUNCTION
+  ; ONLY PATCH IF WE HAVEN'T ALREADY PATCHED
+  ld a,(iy+sponenabled)
+  or a
+  ret nz
+  
+  ; SET UP FIRMWARE JUMP BLOCK PATCH VARIABLES
+  ; SAVE FUNCTION ADDRESS OF SAY COMMAND
+  ld hl,txt_output_replacement
+  ld (iy+far_call_block_1),hl
+  ; SAVE ROM BANK NUMBER IN USE WHERE FUNCTION RESIDES
+  call kl_curr_selection
+  ld (iy+rombanknumber),a
+
+  ; BACK UP ORIGINAL BB5A TXT_OUTPUT
+  ld a,(txt_output) 
+  ld (iy+orig_txt_output_1),a  
+  ld a,(txt_output+1) 
+  ld (iy+orig_txt_output_2),a  
+  ld a,(txt_output+2) 
+  ld (iy+orig_txt_output_3),a  
+  ld a,(txt_output+3) 
+  ld (iy+orig_txt_output_4),a  
+
+  ; PATCH IN OUR JUMP BLOCK
+  ld a,&DF                 ; RST 3 - FAR CALL (CALL ROM FUNCTION)
+  ld (txt_output),a
+  ; ADDRESS
+  push iy
+  pop hl
+  ld bc,far_call_block_1
+  add hl,bc
+  ld (txt_output+1),hl
+  ld a,&C9                    ; RET - STOPS &BB5D GETTING CALLED AFTER OUR FUNCTION
+  ld (txt_output+3),a
+  
+  ld (iy+sponenabled),1
+ret
+
+disablespeechoutput:  ; DISABLE PATCH
+  ; RESTORE ORIGINAL BB5A JUMP BLOCK
+  ld a,(iy+orig_txt_output_1)
+  ld (txt_output),a
+  ld a,(iy+orig_txt_output_2)
+  ld (txt_output+1),a
+  ld a,(iy+orig_txt_output_3)
+  ld (txt_output+2),a
+  ld a,(iy+orig_txt_output_4)
+  ld (txt_output+3),a
+  
+  ld (iy+sponenabled),0
+ret
+
+; Entry - A = character to print
+; PRESERVE HL
+txt_output_replacement:
+  ; PRESERVE HL
+  push hl
+  ; COPY CHAR INTO BUFFER
+  ; GET BUFFER POSITION
+  push iy
+  pop hl
+  ld bc,textbuffer          
+  add hl,bc
+  ; GET CHAR OFFSET IN BUFFER
+  ld b,0
+  ld c,(iy+txt_counter)
+  add hl,bc
+  ld (hl),a ; WRITE CHAR IN BUFFER
+  inc c
+  ld (iy+txt_counter),c
+  
+  ; IF CHARACTER IS 0A (CR)
+  ; THEN WE RESET TXT_COUNTER AND TELL OUR ROM TO SPEAK THE PHRASE
+  
+  cp &0D ; LINE FEED
+  jr nz,skiplinefeed
+  ld (hl)," " ; END WITH SPACE - AFFECTS PRONUNCIATION OF SOME WORDS IN DICTIONARY
+  inc hl
+  ld (hl),a   ; WRITE CHAR IN BUFFER
+  inc (iy+txt_counter)
+  
+  skiplinefeed:
+  cp &0A ; CARRIAGE RETURN
+  ; WE REACHED END OF LINE, RESET TEXT COUNTER TO ZERO
+  jr nz,skipresettextcount 
+  
+  ld (iy+txt_counter),0
+  call dosaycommand
+  ld a,&0A
+  
+  skipresettextcount:
+  pop hl
+  
+  ; CONTINUE NORMAL PRINT CHAR FUNCTION
+  ; CALL ORIGINAL &BB5A TXT OUTPUT
+  push iy
+  pop ix
+  push bc
+  ld bc,orig_txt_output_1
+  add ix,bc
+  pop bc
+  jp (ix)
 
 ; ============================================
 ; SPEECH CODE
 ; --------------------------------------------
 
-; SET START VARIABLES
+; SET START VARIABLES FOR SPEECH CODE
+
 initializevariables:
-  ld a,(iy+24)  ; HAVE WE INITIALIZED
+  ld a,(iy+initializevariable)  ; HAVE WE INITIALIZED
   or a
   ret nz
-  ld (iy+24),1  ; SET THAT WE HAVE INITIALIZED
+  ld (iy+initializevariable),1  ; SET THAT WE HAVE INITIALIZED
   ld (iy+tonedelay),#12 
   ld (iy+speed),#12 ;(pitch)
-  ld (iy+4),4 ;(l8836),a
+  ld (iy+option4),4 ;(l8836),a
 
-  ld (iy+5),#65;a(l8839),a
-  ld (iy+6),#25;a;(l883a),a
-  ld (iy+7),#63;a;(l883b),a
+  ld (iy+option5),#65;a(l8839),a
+  ld (iy+option6),#25;a;(l883a),a
+  ld (iy+option7),#63;a;(l883b),a
   
-  ld (iy+8),#53 ;(l8842)
+  ld (iy+option8),#53 ;(l8842)
   ld (iy+outchannel),9 
 ret
 ;tonedelay:          defb #12                 ; ALTERED PITCH VARIABLE FOR QUESTIONS ETC
@@ -187,8 +345,8 @@ start:
     ld l,(iy+phonemeptr1)
     ld h,(iy+phonemeptr2)
     ;ld (l883c),hl
-    ld (iy+12),l
-    ld (iy+13),h
+    ld (iy+option12),l
+    ld (iy+option13),h
     ld a,(hl)
     cp #0d                     ; END OF PHONEME STRING?
     jr z,finishedspeech;l8830
@@ -286,10 +444,10 @@ ret
 
 
 l888c:
-  ld (iy+4),a;(l8836),a
+  ld (iy+option4),a;(l8836),a
   ;ld (l8834),hl
-  ld (iy+10),l
-  ld (iy+11),h
+  ld (iy+option10),l
+  ld (iy+option11),h
   ld e,1 ; TONE UPPER CHANNEL A
   call l8852
   xor a
@@ -302,10 +460,10 @@ l888c:
   call l8852
   ld a,#3e
   call l8844
-  ld a,(iy+outchannel)
-  ld e,a
+  ld e,(iy+outchannel)
+  ;ld e,a
   call l8852
-  ld a,(iy+4);(l8836)
+  ld a,(iy+option4);(l8836)
   add a
   add a
   add a
@@ -315,8 +473,8 @@ l888c:
   and #3f
   ld c,a
   ;ld hl,(l8834)
-  ld l,(iy+10)
-  ld h,(iy+11) 
+  ld l,(iy+option10)
+  ld h,(iy+option11) 
   
   xor a
   ld b,0
@@ -330,8 +488,8 @@ l888c:
   and #0f
   call l8844
   
-  ld a,(iy+tonedelay)
-  ld b,a
+  ld b,(iy+tonedelay)
+  ;ld b,a
   l88d9:
   djnz l88d9       ; DELAY TO MAKE SOUND LAST LONGER
   
@@ -343,8 +501,8 @@ l888c:
   and #0f
   call l8844
   
-  ld a,(iy+tonedelay)
-  ld b,a
+  ld b,(iy+tonedelay)
+  ;ld b,a
   l88ed:
   djnz l88ed       ; DELAY TO MAKE SOUND LAST LONGER
   
@@ -356,10 +514,10 @@ l888c:
 ret
 
 l88f9:
-  ld (iy+4),a;(l8836),a
+  ld (iy+option4),a;(l8836),a
   ;ld (l8834),hl ; STORE SOUND SAMPLE PTR
-  ld (iy+10),l
-  ld (iy+11),h
+  ld (iy+option10),l
+  ld (iy+option11),h
   ld e,1        ; TONE UPPER CHANNEL A
   call l8852
   xor a
@@ -372,23 +530,23 @@ l88f9:
   call l8852
   ld a,#3e
   call l8844
-  ld a,(iy+outchannel)
-  ld e,a
+  ld e,(iy+outchannel)
+  ;ld e,a
   call l8852
-  ld a,(iy+4);(l8836)
-  ld d,a
+  ld d,(iy+option4);(l8836)
+  ;ld d,a
   l8926:
   ;ld hl,(l8834)  ; RESTORE SOUND SAMPLE PTR TO HL
-  ld l,(iy+10)
-  ld h,(iy+11)
+  ld l,(iy+option10)
+  ld h,(iy+option11)
   ld e,#3f
   l892b:
   ld a,(hl)
   and #0f
   call l8844
   
-  ld a,(iy+tonedelay)
-  ld b,a
+  ld b,(iy+tonedelay)
+  ;ld b,a
   l8935:
   djnz l8935     ; DELAY TO MAKE SOUND LAST LONGER
   
@@ -400,8 +558,8 @@ l88f9:
   and #0f
   call l8844
   
-  ld a,(iy+tonedelay)
-  ld b,a
+  ld b,(iy+tonedelay)
+  ;ld b,a
   l8949:
   djnz l8949     ; DELAY TO MAKE SOUND LAST LONGER
   
@@ -446,10 +604,10 @@ db #66,#7a,#7a,#89,#67,#c8,#a6,#83
 db #7b,#c5,#c1,#b4,#98,#87,#b3
 
 l8a17:
-  ld a,(iy+5);(l8839)
+  ld a,(iy+option5);(l8839)
   xor #65
   adc #25
-  ld (iy+5),a;(l8839),a
+  ld (iy+option5),a;(l8839),a
   push iy
   pop hl
   ; MOVE TO OFFSET 5 IN HL
@@ -620,7 +778,7 @@ ret
 
 sound_a_a:
   ld hl,l8f43
-  ld a,#09
+  ld a,9
   call l88f9
 ret
 
@@ -1211,19 +1369,19 @@ l8ee4:
   push hl
   push de
   ;ld de,(l883c)
-  ld e,(iy+12)
-  ld d,(iy+13)
+  ld e,(iy+option12)
+  ld d,(iy+option13)
   ;ld hl,(l883e)
-  ld l,(iy+14)
-  ld h,(iy+15)
+  ld l,(iy+option14)
+  ld h,(iy+option15)
   xor a
   sbc hl,de
   ld a,h
   or l
   jr z,checkendofsentencetoneadjust
 ;  ld hl,(l8840)
-  ld l,(iy+16)
-  ld h,(iy+17)
+  ld l,(iy+option16)
+  ld h,(iy+option17)
   xor a
   sbc hl,de
   ld a,h
@@ -1236,7 +1394,7 @@ l8ee4:
 ret
 
 checkendofsentencetoneadjust:
-  ld a,(iy+8);(l8842)
+  ld a,(iy+option8);(l8842)
   cp #3f ; ?
   jr z,raisetoneforquestion
   cp #2e ; .
@@ -1256,7 +1414,7 @@ droptoneforfullstop:
 jr l8eff
 
 checkendofsentencetoneadjust2:
-  ld a,(iy+8);(l8842)
+  ld a,(iy+option8);(l8842)
   cp #3f ; ?
   jr z,raisetoneforquestion2
   cp #2e ; .
@@ -1629,32 +1787,32 @@ l9bfe:
   jr z,l9c19
   push af
   xor a
-  ld (iy+23),a;(l98b1),a
+  ld (iy+option23),a;(l98b1),a
   pop af
 ret
 l9c19:
   push af
-  ld a,(iy+23);(l98b1)
+  ld a,(iy+option23);(l98b1)
   or a
   jr nz,l9c31
   push hl
 ;  ld hl,(l8840)
-  ld l,(iy+16)
-  ld h,(iy+17)
+  ld l,(iy+option16)
+  ld h,(iy+option17)
   ;ld (l883e),hl
-  ld (iy+14),l
-  ld (iy+15),h
+  ld (iy+option14),l
+  ld (iy+option15),h
   pop hl
   ;ld (l8840),hl
-  ld (iy+16),l
-  ld (iy+17),h
+  ld (iy+option16),l
+  ld (iy+option17),h
   inc a
-  ld (iy+23),a;(l98b1),a
+  ld (iy+option23),a;(l98b1),a
   pop af
 ret
 l9c31:
   xor a
-  ld (iy+23),a;(l98b1),a
+  ld (iy+option23),a;(l98b1),a
   pop af
 ret
 
@@ -1860,7 +2018,7 @@ dict3:
 db "AGE ",#00,"AYJ",#00
 db "AUGH",#00,"AA3F",#00
 db "AIGH",#00,"AY",#00
-db "ABLE",#00,"AHBUUL",#00
+db "ABLE",#00,"AY3BL",#00;"AHBUUL",#00
 db "ACI",#00,"AESIH",#00
 db "AXI",#00,"AEKSIH",#00
 db "A#I",#00,"AY3#",#00
@@ -1909,6 +2067,7 @@ dict15:
 db "MICRO",#00,"MIY3KROW",#00
 db "MB ",#00,"M",#00
 db "MM",#00,"M",#00
+db "MPUT",#00,"MPYUWT",#00
 db "M",#00,"M",#00
 
 dict22:
@@ -1936,6 +2095,7 @@ db "ERY ",#00,"EH2REE",#00
 db "ERR",#00,"EH2R",#00
 db "ES ",#00,"S",#00
 db "EFUL ",#00,"FUUL",#00
+db "EADY ",#00,"AI4DEE",#00
 db "EASE ",#00,"EEZ",#00
 db "E ",#00,"%",#00
 db "EW",#00,"IHUW",#00
@@ -2023,6 +2183,7 @@ db "PROG",#00,"PROW2G",#00
 db "PH",#00,"F",#00
 db "PP",#00,"P",#00
 db "PLY",#00,"PLIY",#00
+db "PUT",#00,"PUHT",#00
 db "P",#00,"P",#00
 
 dict6: 
@@ -2036,6 +2197,7 @@ db "D",#00,"D",#00
 dict14:
 db "LE ",#00,"UUL",#00
 db "LL",#00,"L",#00
+db "LAW",#00,"LOOAH",#00
 db "L",#00,"L",#00
 
 dict25: 
@@ -2243,6 +2405,7 @@ saycommand:
   inc bc
   ld a,#0d        ; EOL
   ld (bc),a
+  dosaycommand:
   call l9c37      ; STRIP BAD CHARACTERS FROM STRING?
   call l9ae7      ; FIND LAST LETTER OF WORD?
   call l99c3      ; SAY PHONEME?
@@ -2258,15 +2421,15 @@ l99c3:
   pop iy  
   
   ;ld (l99be),hl
-  ld (iy+18),l
-  ld (iy+19),h  
+  ld (iy+option18),l
+  ld (iy+option19),h  
   ld hl,0
   ;ld (l8840),hl
-  ld (iy+16),l
-  ld (iy+17),h
+  ld (iy+option16),l
+  ld (iy+option17),h
   ;ld (l883e),hl
-  ld (iy+14),l
-  ld (iy+15),h
+  ld (iy+option14),l
+  ld (iy+option15),h
   
   ;ld hl,phonemestringbuffer
   ; GET PHONEME STRING BUFFER POSITION
@@ -2299,8 +2462,8 @@ jp l99e7
 
 l99f4:
   ;ld hl,(l99be)
-  ld l,(iy+18)
-  ld h,(iy+19)
+  ld l,(iy+option18)
+  ld h,(iy+option19)
   
   ld a,(hl)
   cp #41             ; A
@@ -2318,8 +2481,8 @@ l99f4:
   inc hl
   ld b,(hl)
   ;ld (l99c0),bc
-  ld (iy+20),c
-  ld (iy+21),b
+  ld (iy+option20),c
+  ld (iy+option21),b
   l9a15:
     call l9a38
     ret c
@@ -2331,27 +2494,27 @@ l9a1f:
   jp z,l9a2e
   ld bc,dict_numbers ; LOAD ORDINARY DATA
   ;ld (l99c0),bc
-  ld (iy+20),c
-  ld (iy+21),b
+  ld (iy+option20),c
+  ld (iy+option21),b
 jp l9a15
 
 ; LOAD TABLE?
 l9a2e:
   ld bc,dict_space   ; LOAD DATA IF SPACE
   ;ld (l99c0),bc
-  ld (iy+20),c
-  ld (iy+21),b
+  ld (iy+option20),c
+  ld (iy+option21),b
 jp l9a15
 
 ; PARSE PHONEME?
 l9a38:
 ;  ld hl,(l99be)
-  ld l,(iy+18)
-  ld h,(iy+19)
+  ld l,(iy+option18)
+  ld h,(iy+option19)
   
   ;ld bc,(l99c0)
-  ld c,(iy+20)
-  ld b,(iy+21)
+  ld c,(iy+option20)
+  ld b,(iy+option21)
   ld a,(bc)
   l9a40:
   cp #20 ; SPACE
@@ -2375,11 +2538,11 @@ l9a38:
   inc bc
   dec hl
   ;ld (l99c0),bc
-  ld (iy+20),c
-  ld (iy+21),b
+  ld (iy+option20),c
+  ld (iy+option21),b
   ;ld (l99be),hl
-  ld (iy+18),l
-  ld (iy+19),h
+  ld (iy+option18),l
+  ld (iy+option19),h
   
   ld a,(hl)
   call l9ad4
@@ -2397,8 +2560,8 @@ l9a38:
   l9a76:
   inc hl
   ;ld (l99be),hl
-  ld (iy+18),l
-  ld (iy+19),h
+  ld (iy+option18),l
+  ld (iy+option19),h
   scf  ; RETURN TRUE
 ret
 
@@ -2407,7 +2570,7 @@ l9a7c:
   cp #0d ; EOL
   jr z,l9a8d
   ;ld (l99c2),a  ; STORE HASH
-  ld (iy+22),a
+  ld (iy+option22),a
 jp l9a4c
 
 l9a87:
@@ -2416,28 +2579,28 @@ l9a87:
   jr c,l9a4c
   l9a8d: ; EOL
   ;ld (l99c0),bc
-  ld (iy+20),c
-  ld (iy+21),b
+  ld (iy+option20),c
+  ld (iy+option21),b
   xor a ; RETURN FALSE
 ret
 
 l9a93:
   ;ld hl,(l99c0)
-  ld l,(iy+20)
-  ld h,(iy+21)
+  ld l,(iy+option20)
+  ld h,(iy+option21)
   ld bc,0
   xor a
   cpir
   cpir
   ;ld (l99c0),hl
-  ld (iy+20),l
-  ld (iy+21),h
+  ld (iy+option20),l
+  ld (iy+option21),h
 ret
 
 l9aa2:
   ;ld hl,(l99be)
-  ld l,(iy+18)
-  ld h,(iy+19)
+  ld l,(iy+option18)
+  ld h,(iy+option19)
   ld a,(hl) 
   cp #0d ; EOL
   jr z,returntrue2
@@ -2450,8 +2613,8 @@ ret
 
 l9aae:
   ;ld bc,(l99c0)
-  ld c,(iy+20)
-  ld b,(iy+21)
+  ld c,(iy+option20)
+  ld b,(iy+option21)
   ;ld hl,(phonemeptr)
   ld l,(iy+phonemeptr1)
   ld h,(iy+phonemeptr2)
@@ -2471,7 +2634,7 @@ l9aae:
   jp l9ab5
   l9aca:
   ;ld a,(l99c2)
-  ld a,(iy+22)
+  ld a,(iy+option22)
   jp l9ac1
   l9ad0:
  ; ld (phonemeptr),hl
@@ -2515,6 +2678,6 @@ l9ae7:
   l9af4:
   cp #0d ; EOL
   ret z
-  ld (iy+8),a;(l8842),a
+  ld (iy+option8),a;(l8842),a
   inc hl
 jp l9aea
